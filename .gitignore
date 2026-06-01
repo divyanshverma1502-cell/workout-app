@@ -1,0 +1,8 @@
+.next/
+node_modules/
+data/
+.env*.local
+.codex-tools/
+.next-dev.log
+.next-dev.err
+*.tsbuildinfo
