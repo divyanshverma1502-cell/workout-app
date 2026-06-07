@@ -200,6 +200,61 @@ export function customStrengthTrend(workouts: Workout[], exerciseId: string): St
   }));
 }
 
+export function exerciseSessionHistory(workouts: Workout[], exerciseId: string) {
+  return [...workouts]
+    .sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())
+    .flatMap((workout) =>
+      workout.exercises
+        .filter((exercise) => exercise.exerciseId === exerciseId)
+        .map((exercise) => ({
+          workoutId: workout.id,
+          workoutName: workout.name,
+          performedAt: workout.performedAt,
+          bodyweightKg: workout.bodyweightKg,
+          notes: exercise.notes || "",
+          totalVolume: exerciseVolume(exercise, workout.bodyweightKg),
+          sets: exercise.sets.map((set) => ({ ...set })),
+        })),
+    );
+}
+
+export function lastExerciseSession(workouts: Workout[], exerciseId: string) {
+  return exerciseSessionHistory(workouts, exerciseId)[0] || null;
+}
+
+export function personalBestWeights(workouts: Workout[]) {
+  const records = new Map<
+    string,
+    {
+      exerciseId: string;
+      exerciseName: string;
+      weightKg: number;
+      reps: number;
+      achievedAt: string;
+    }
+  >();
+
+  for (const workout of workouts) {
+    for (const exercise of workout.exercises) {
+      for (const set of exercise.sets) {
+        if (!set.completed) continue;
+        const existing = records.get(exercise.exerciseId);
+        if (!existing || set.weightKg > existing.weightKg) {
+          records.set(exercise.exerciseId, {
+            exerciseId: exercise.exerciseId,
+            exerciseName: exercise.exerciseName,
+            weightKg: set.weightKg,
+            reps: set.reps,
+            achievedAt: workout.performedAt,
+          });
+        }
+      }
+    }
+  }
+
+  return Array.from(records.values()).sort((a, b) => b.weightKg - a.weightKg);
+}
+
 export function exerciseHistory(workouts: Workout[], exerciseId: string): ExerciseHistoryPoint[] {
   return [...workouts]
     .sort((a, b) => new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime())
@@ -207,9 +262,9 @@ export function exerciseHistory(workouts: Workout[], exerciseId: string): Exerci
       workout.exercises
         .filter((exercise) => exercise.exerciseId === exerciseId)
         .map((exercise) => {
-          const bestSet = [...exercise.sets].sort(
-            (a, b) => estimateOneRepMax(b.weightKg, b.reps) - estimateOneRepMax(a.weightKg, a.reps),
-          )[0];
+          const bestSet = [...exercise.sets]
+            .filter((set) => set.completed)
+            .sort((a, b) => b.weightKg - a.weightKg || b.reps - a.reps)[0];
 
           return {
             date: workout.performedAt.slice(0, 10),
@@ -223,19 +278,17 @@ export function exerciseHistory(workouts: Workout[], exerciseId: string): Exerci
 }
 
 export function lastExercisePerformance(workouts: Workout[], exerciseId: string): LastExercisePerformance | null {
-  for (const workout of [...workouts].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())) {
-    const exercise = workout.exercises.find((candidate) => candidate.exerciseId === exerciseId);
-    const lastSet = exercise?.sets.at(-1);
-    if (exercise && lastSet) {
-      return {
-        workoutName: workout.name,
-        performedAt: workout.performedAt,
-        reps: lastSet.reps,
-        weightKg: lastSet.weightKg,
-        assistanceKg: lastSet.assistanceKg,
-        kind: lastSet.kind,
-      };
-    }
+  const lastSession = lastExerciseSession(workouts, exerciseId);
+  const lastSet = lastSession?.sets.at(-1);
+  if (lastSession && lastSet) {
+    return {
+      workoutName: lastSession.workoutName,
+      performedAt: lastSession.performedAt,
+      reps: lastSet.reps,
+      weightKg: lastSet.weightKg,
+      assistanceKg: lastSet.assistanceKg,
+      kind: lastSet.kind,
+    };
   }
   return null;
 }

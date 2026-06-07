@@ -4,7 +4,7 @@ import { CheckCircle2, Copy, Plus, Save, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RestTimer } from "@/components/rest-timer";
 import { Field, GhostButton, IconButton, Panel, Pill, PrimaryButton, Select, SectionTitle, TextArea } from "@/components/ui";
-import { compareWorkoutToPrevious, lastExercisePerformance } from "@/lib/metrics";
+import { compareWorkoutToPrevious, lastExercisePerformance, lastExerciseSession } from "@/lib/metrics";
 import { useWorkoutStore } from "@/store/workout-store";
 import { exerciseCategories, type Exercise, type ExerciseInput, type LoggedExerciseInput, type SetKind, type Workout, type WorkoutInput, type WorkoutTemplate } from "@/types/domain";
 
@@ -21,6 +21,14 @@ function toInputDate(iso: string) {
 function fromInputDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
+}
+
+function formatShortDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatLongDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 function emptyWorkout(bodyweightKg?: number | null): WorkoutInput {
@@ -63,7 +71,6 @@ export function WorkoutLogger({
   workouts,
   templates,
   latestBodyweight,
-  onSaved,
   onSaveWorkout,
   onSaveTemplate,
   onCreateExercise,
@@ -72,7 +79,6 @@ export function WorkoutLogger({
   workouts: Workout[];
   templates: WorkoutTemplate[];
   latestBodyweight?: number | null;
-  onSaved: (workout: Workout) => void;
   onSaveWorkout: (workout: WorkoutInput) => Promise<Workout>;
   onSaveTemplate: (template: Pick<WorkoutTemplate, "name" | "category" | "exercises">) => Promise<WorkoutTemplate>;
   onCreateExercise: (input: ExerciseInput) => Promise<Exercise>;
@@ -256,8 +262,7 @@ export function WorkoutLogger({
     try {
       const workout = await onSaveWorkout(activeDraft);
       setDraft(emptyWorkout(activeDraft.bodyweightKg || latestBodyweight));
-      onSaved(workout);
-      setStatus("Workout saved.");
+      setStatus(`${workout.name} saved.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save workout.");
     } finally {
@@ -382,31 +387,33 @@ export function WorkoutLogger({
               </div>
             ) : null}
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {filteredExercises.map((exercise) => (
-                <button
-                  key={exercise.id}
-                  className="flex min-h-14 items-center justify-between gap-3 rounded-lg border border-line bg-coal/70 px-3 text-left transition hover:border-lift/50 hover:bg-lift/10"
-                  onClick={() => addExercise(exercise)}
-                  type="button"
-                >
-                  <span>
-                    <span className="block font-medium text-white">{exercise.name}</span>
-                    <span className="text-xs text-slate-400">
-                      {exercise.category}
-                      {lastExercisePerformance(workouts, exercise.id)
-                        ? ` - Last ${lastExercisePerformance(workouts, exercise.id)?.weightKg}kg x ${lastExercisePerformance(workouts, exercise.id)?.reps}`
-                        : ""}
+              {filteredExercises.map((exercise) => {
+                const last = lastExercisePerformance(workouts, exercise.id);
+                return (
+                  <button
+                    key={exercise.id}
+                    className="flex min-h-16 items-center justify-between gap-3 rounded-lg border border-line bg-coal/70 px-3 py-2 text-left transition hover:border-lift/50 hover:bg-lift/10"
+                    onClick={() => addExercise(exercise)}
+                    type="button"
+                  >
+                    <span>
+                      <span className="block font-medium text-white">{exercise.name}</span>
+                      <span className="text-xs text-slate-400">
+                        {exercise.category}
+                        {last ? ` - ${formatShortDate(last.performedAt)} - ${last.weightKg}kg x ${last.reps}` : ""}
+                      </span>
                     </span>
-                  </span>
-                  <Plus size={18} className="text-lift" aria-hidden />
-                </button>
-              ))}
+                    <Plus size={18} className="text-lift" aria-hidden />
+                  </button>
+                );
+              })}
             </div>
           </Panel>
 
           {activeDraft.exercises.map((exercise, exerciseIndex) => {
             const improvement = comparison.find((item) => item.exerciseId === exercise.exerciseId);
             const last = lastExercisePerformance(workouts, exercise.exerciseId);
+            const previousSession = lastExerciseSession(workouts, exercise.exerciseId);
             return (
               <Panel key={`${exercise.exerciseId}-${exerciseIndex}`} className="p-3 md:p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -417,18 +424,50 @@ export function WorkoutLogger({
                       {improvement && improvement.volumeDelta > 0 ? (
                         <Pill className="border-lift/30 text-lift">+{Math.round(improvement.volumeDelta)} kg volume</Pill>
                       ) : null}
-                      {improvement && improvement.bestSetDelta > 0 ? (
-                        <Pill className="border-amber/30 text-amber">+{improvement.bestSetDelta} kg e1RM</Pill>
-                      ) : null}
                     </div>
-                    <p className="mt-1 text-sm text-slate-400">
-                      {last ? `Last session: ${last.weightKg}kg x ${last.reps}` : `Previous volume ${Math.round(improvement?.previousVolume || 0).toLocaleString()} kg`}
-                    </p>
+                    {last ? (
+                      <div className="mt-2 grid gap-2 text-sm text-slate-300 sm:grid-cols-3">
+                        <div className="rounded-lg border border-line bg-coal/60 px-3 py-2">
+                          <span className="block text-xs uppercase tracking-[0.12em] text-steel">Last workout</span>
+                          {formatLongDate(last.performedAt)}
+                        </div>
+                        <div className="rounded-lg border border-line bg-coal/60 px-3 py-2">
+                          <span className="block text-xs uppercase tracking-[0.12em] text-steel">Last weight</span>
+                          {last.weightKg} kg
+                        </div>
+                        <div className="rounded-lg border border-line bg-coal/60 px-3 py-2">
+                          <span className="block text-xs uppercase tracking-[0.12em] text-steel">Last reps</span>
+                          {last.reps}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm text-slate-400">
+                        Previous volume {Math.round(improvement?.previousVolume || 0).toLocaleString()} kg
+                      </p>
+                    )}
                   </div>
                   <IconButton aria-label="Remove exercise" onClick={() => removeExercise(exerciseIndex)}>
                     <Trash2 size={18} aria-hidden />
                   </IconButton>
                 </div>
+
+                {previousSession ? (
+                  <div className="mt-3 rounded-lg border border-line bg-coal/50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-white">Previous session sets</p>
+                      <Pill>{previousSession.workoutName}</Pill>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {previousSession.sets.map((set) => (
+                        <Pill key={set.id || `${set.setNumber}-${set.reps}-${set.weightKg}`}>
+                          Set {set.setNumber}: {set.weightKg}kg x {set.reps}
+                          {set.assistanceKg ? `, ${set.assistanceKg}kg assist` : ""}
+                          {set.kind !== "standard" ? `, ${set.kind}` : ""}
+                        </Pill>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 space-y-3">
                   {exercise.sets.map((set, setIndex) => (

@@ -37,9 +37,15 @@ const navItems: Array<{ id: View; label: string; icon: React.ComponentType<{ siz
   { id: "library", label: "Library", icon: BookOpen },
 ];
 
+function initialView(): View {
+  if (typeof window === "undefined") return "dashboard";
+  const requested = new URLSearchParams(window.location.search).get("view");
+  return navItems.some((item) => item.id === requested) ? (requested as View) : "dashboard";
+}
+
 export function WorkoutApp() {
   const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(initialView);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [bodyweight, setBodyweight] = useState<BodyweightEntry[]>([]);
@@ -311,7 +317,6 @@ export function WorkoutApp() {
             workouts={workouts}
             templates={templates}
             latestBodyweight={latestBodyweight}
-            onSaved={handleWorkoutSaved}
             onSaveWorkout={saveWorkout}
             onSaveTemplate={saveTemplate}
             onCreateExercise={createExercise}

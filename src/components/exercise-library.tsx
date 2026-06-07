@@ -4,7 +4,7 @@ import { Archive, Edit3, Heart, Plus, RotateCcw, Search, Trash2, X } from "lucid
 import { useMemo, useState } from "react";
 import { BodyweightChart, ExerciseHistoryChart } from "@/components/charts";
 import { exerciseCategories, type BodyweightEntry, type Exercise, type ExerciseInput, type Workout } from "@/types/domain";
-import { exerciseRecords, lastExercisePerformance } from "@/lib/metrics";
+import { exerciseRecords, exerciseSessionHistory, lastExercisePerformance, personalBestWeights } from "@/lib/metrics";
 import { Field, GhostButton, IconButton, Panel, Pill, PrimaryButton, Select, SectionTitle, TextArea } from "@/components/ui";
 
 const bodyweightNames = ["push-ups", "pull-up", "planks", "dips"];
@@ -64,6 +64,9 @@ export function ExerciseLibrary({
   const selectedExercise = exercises.find((exercise) => exercise.id === selectedExerciseId) || visibleExercises[0];
   const records = exerciseRecords(workouts);
   const selectedRecord = records.find((record) => record.exerciseId === selectedExercise?.id);
+  const bestWeights = personalBestWeights(workouts);
+  const selectedBestWeight = bestWeights.find((record) => record.exerciseId === selectedExercise?.id);
+  const selectedHistory = selectedExercise ? exerciseSessionHistory(workouts, selectedExercise.id) : [];
 
   const bodyweightProgress = useMemo(() => {
     return bodyweightNames.map((name) => {
@@ -268,10 +271,15 @@ export function ExerciseLibrary({
               <ExerciseHistoryChart workouts={workouts} exerciseId={selectedExercise.id} />
               {selectedRecord ? (
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm text-slate-400">
-                  <Pill className="justify-center">Heavy {selectedRecord.heaviestWeightKg}kg</Pill>
+                  <Pill className="justify-center">Best {selectedRecord.heaviestWeightKg}kg</Pill>
                   <Pill className="justify-center">Reps {selectedRecord.mostReps}</Pill>
-                  <Pill className="justify-center">e1RM {selectedRecord.bestEstimatedOneRepMax}kg</Pill>
+                  <Pill className="justify-center">{selectedHistory.length} sessions</Pill>
                 </div>
+              ) : null}
+              {selectedBestWeight ? (
+                <p className="mt-3 rounded-lg border border-lift/30 bg-lift/10 px-3 py-2 text-sm text-lift">
+                  Personal best weight: {selectedBestWeight.weightKg}kg x {selectedBestWeight.reps} on {formatDate(selectedBestWeight.achievedAt)}.
+                </p>
               ) : null}
             </>
           ) : (
@@ -306,6 +314,71 @@ export function ExerciseLibrary({
         </Panel>
       </div>
 
+      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel>
+          <SectionTitle eyebrow="History" title="Complete exercise history" />
+          {selectedExercise && selectedHistory.length > 0 ? (
+            <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1 no-scrollbar">
+              {selectedHistory.map((session) => (
+                <article key={session.workoutId} className="rounded-lg border border-line bg-coal/60 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-white">{session.workoutName}</p>
+                      <p className="mt-1 text-sm text-slate-400">{formatDate(session.performedAt)}</p>
+                    </div>
+                    <Pill>{Math.round(session.totalVolume).toLocaleString()} kg volume</Pill>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {session.sets.map((set) => (
+                      <Pill key={set.id}>
+                        Set {set.setNumber}: {set.weightKg}kg x {set.reps}
+                        {set.assistanceKg ? `, ${set.assistanceKg}kg assist` : ""}
+                        {set.kind !== "standard" ? `, ${set.kind}` : ""}
+                      </Pill>
+                    ))}
+                  </div>
+                  {session.notes ? <p className="mt-3 text-sm text-slate-400">{session.notes}</p> : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-line bg-coal/40 p-6 text-center text-slate-400">
+              Select an exercise with saved sets to see every logged session.
+            </div>
+          )}
+        </Panel>
+
+        <Panel>
+          <SectionTitle eyebrow="Best weight" title="Personal bests by exercise" />
+          {bestWeights.length > 0 ? (
+            <div className="space-y-3">
+              {bestWeights.map((record) => (
+                <button
+                  key={record.exerciseId}
+                  className={`flex w-full items-center justify-between gap-3 rounded-lg border bg-coal/60 p-3 text-left transition hover:border-lift/50 ${
+                    selectedExercise?.id === record.exerciseId ? "border-lift/50" : "border-line"
+                  }`}
+                  onClick={() => setSelectedExerciseId(record.exerciseId)}
+                  type="button"
+                >
+                  <span>
+                    <span className="block font-medium text-white">{record.exerciseName}</span>
+                    <span className="text-sm text-slate-400">{formatDate(record.achievedAt)}</span>
+                  </span>
+                  <Pill className="border-lift/30 text-lift">
+                    {record.weightKg}kg x {record.reps}
+                  </Pill>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-line bg-coal/40 p-6 text-center text-slate-400">
+              Best weights appear after saved workouts.
+            </div>
+          )}
+        </Panel>
+      </div>
+
       <Panel>
         <SectionTitle eyebrow="Weight" title="Bodyweight entries" />
         {bodyweight.length > 1 ? (
@@ -318,4 +391,8 @@ export function ExerciseLibrary({
       </Panel>
     </div>
   );
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

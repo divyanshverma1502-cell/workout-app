@@ -5,6 +5,20 @@ export const metadata: Metadata = {
   title: "Lift Log | Personal Workout Tracker",
   description: "Track workouts, bodyweight progressions, progressive overload, and long-term strength trends.",
   manifest: "/manifest.json",
+  applicationName: "Lift Log",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Lift Log",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {

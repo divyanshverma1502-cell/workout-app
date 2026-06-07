@@ -188,7 +188,6 @@ export function ExerciseHistoryChart({ workouts, exerciseId }: { workouts: Worko
           <Line type="monotone" dataKey="weightKg" name="Weight" stroke="#38e1a2" strokeWidth={3} dot={false} />
           <Line type="monotone" dataKey="reps" name="Reps" stroke="#f5b74f" strokeWidth={3} dot={false} />
           <Line type="monotone" dataKey="volume" name="Volume" stroke="#7dd3fc" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="estimatedOneRepMax" name="e1RM" stroke="#f0abfc" strokeWidth={2} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

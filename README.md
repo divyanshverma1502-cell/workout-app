@@ -13,7 +13,7 @@ A personal workout tracker built with Next.js, TypeScript, Tailwind CSS, Zustand
 - Dashboard cards, PR tracking, strength trends, weekly volume, consistency, and bodyweight charts
 - Bodyweight exercise progression for push-ups, pull-ups, planks, and dips
 - Estimated 1RM calculator, streak tracking, muscle group frequency, and CSV export
-- PWA manifest and service worker with offline workout queueing
+- PWA manifest and service worker for Android install, home-screen launch, and local offline logging
 
 ## Requirements
 
@@ -58,7 +58,8 @@ npm run typecheck  # run TypeScript checks
 - `src/app/api/*` contains the server API for authentication, exercises, workouts, templates, bodyweight, and CSV export.
 - `src/lib/db.ts` owns SQLite schema creation, seed exercises, starter templates, and data persistence.
 - `src/lib/auth.ts` owns password hashing, session issuing, and cookie handling.
-- `src/store/workout-store.ts` keeps only active workout drafts and the offline queue in browser storage.
+- `src/lib/local-db.ts` keeps the offline-first browser copy of exercises, workouts, templates, bodyweight entries, and backups in IndexedDB.
+- `src/store/workout-store.ts` keeps only the active gym-session draft in browser storage.
 - `src/components/*` contains reusable UI, charts, dashboard, workout logger, analytics, and exercise library views.
 
 ## Seed Exercises

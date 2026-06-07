@@ -54,7 +54,7 @@ export function getDb() {
   mkdirSync(dataDir, { recursive: true });
   database = new DatabaseSync(process.env.WORKOUT_DB_PATH || path.join(dataDir, "workout.sqlite"));
 
-  // SQLite is the durable source of truth. API route handlers use this module; the browser keeps only drafts/offline queue data.
+  // SQLite is the server-side source of truth. The browser keeps its offline-first copy in IndexedDB.
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
