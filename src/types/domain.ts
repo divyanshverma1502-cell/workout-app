@@ -5,6 +5,7 @@ export const exerciseCategories = [
   "Core",
   "Cardio",
   "Calisthenics",
+  "Custom",
 ] as const;
 
 export type ExerciseCategory = (typeof exerciseCategories)[number];
@@ -26,6 +27,18 @@ export type Exercise = {
   isBodyweight: boolean;
   isFavorite: boolean;
   primaryMuscles: string[];
+  notes?: string | null;
+  source?: "seed" | "custom";
+  archivedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ExerciseInput = {
+  name: string;
+  category: ExerciseCategory;
+  notes?: string;
+  isBodyweight?: boolean;
 };
 
 export type WorkoutSetInput = {
@@ -101,12 +114,24 @@ export type PersonalRecord = {
   achievedAt: string;
 };
 
+export type ExerciseRecord = {
+  exerciseId: string;
+  exerciseName: string;
+  heaviestWeightKg: number;
+  heaviestWeightAt?: string;
+  mostReps: number;
+  mostRepsAt?: string;
+  bestEstimatedOneRepMax: number;
+  bestEstimatedOneRepMaxAt?: string;
+};
+
 export type StrengthPoint = {
   date: string;
   benchPress?: number;
   squatLegPress?: number;
   pullUp?: number;
   overheadPress?: number;
+  custom?: number;
 };
 
 export type WorkoutComparison = {
@@ -118,4 +143,21 @@ export type WorkoutComparison = {
   previousBestSet: number;
   currentBestSet: number;
   bestSetDelta: number;
+};
+
+export type ExerciseHistoryPoint = {
+  date: string;
+  weightKg: number;
+  reps: number;
+  volume: number;
+  estimatedOneRepMax: number;
+};
+
+export type LastExercisePerformance = {
+  workoutName: string;
+  performedAt: string;
+  reps: number;
+  weightKg: number;
+  assistanceKg?: number | null;
+  kind: SetKind;
 };

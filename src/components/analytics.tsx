@@ -1,16 +1,28 @@
 "use client";
 
-import { Calculator, Download, TrendingUp } from "lucide-react";
+import { Calculator, Download, FileJson, TrendingUp, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
-import { MusclePieChart, VolumeChart } from "@/components/charts";
+import { MusclePieChart, VolumePeriodChart } from "@/components/charts";
 import { Field, GhostButton, MetricCard, Panel, SectionTitle } from "@/components/ui";
-import { estimateOneRepMax, personalRecords, workoutStreak } from "@/lib/metrics";
+import { estimateOneRepMax, exerciseRecords, personalRecords, workoutStreak } from "@/lib/metrics";
 import type { Workout } from "@/types/domain";
 
-export function Analytics({ workouts }: { workouts: Workout[] }) {
+export function Analytics({
+  workouts,
+  onExportCsv,
+  onExportJson,
+  onImportJson,
+}: {
+  workouts: Workout[];
+  onExportCsv: () => void;
+  onExportJson: () => void;
+  onImportJson: (file: File) => void;
+}) {
   const [weight, setWeight] = useState(60);
   const [reps, setReps] = useState(8);
+  const [volumePeriod, setVolumePeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
   const records = personalRecords(workouts);
+  const fullRecords = exerciseRecords(workouts);
   const topRecord = records[0];
   const monthStart = useMemo(() => {
     const date = new Date();
@@ -32,8 +44,24 @@ export function Analytics({ workouts }: { workouts: Workout[] }) {
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel>
-          <SectionTitle eyebrow="Load" title="Volume trends" />
-          <VolumeChart workouts={workouts} />
+          <SectionTitle
+            eyebrow="Load"
+            title="Volume trends"
+            action={
+              <div className="flex gap-1 rounded-lg border border-line bg-coal p-1">
+                {(["daily", "weekly", "monthly"] as const).map((period) => (
+                  <button
+                    key={period}
+                    className={`min-h-9 rounded-md px-3 text-xs font-semibold capitalize transition ${volumePeriod === period ? "bg-lift text-coal" : "text-slate-400"}`}
+                    onClick={() => setVolumePeriod(period)}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <VolumePeriodChart workouts={workouts} period={volumePeriod} />
         </Panel>
 
         <Panel>
@@ -73,13 +101,13 @@ export function Analytics({ workouts }: { workouts: Workout[] }) {
 
         <Panel>
           <SectionTitle
-            eyebrow="Export"
-            title="Workout history"
+            eyebrow="Backup"
+            title="Data safety"
             action={
-              <a href="/api/export" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-lift px-3 text-sm font-semibold text-coal transition hover:bg-emerald-300">
+              <button className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-lift px-3 text-sm font-semibold text-coal transition hover:bg-emerald-300" onClick={onExportCsv}>
                 <Download size={16} aria-hidden />
                 CSV
-              </a>
+              </button>
             }
           />
           {records.length > 0 ? (
@@ -105,11 +133,63 @@ export function Analytics({ workouts }: { workouts: Workout[] }) {
               </div>
             </div>
           )}
-          <GhostButton className="mt-4 w-full" onClick={() => window.open("/api/export", "_blank")}>
-            Export workout history
-          </GhostButton>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <GhostButton onClick={onExportCsv}>
+              <Download size={16} aria-hidden />
+              CSV
+            </GhostButton>
+            <GhostButton onClick={onExportJson}>
+              <FileJson size={16} aria-hidden />
+              JSON
+            </GhostButton>
+            <label className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border border-line bg-white/[0.04] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.08]">
+              <Upload size={16} aria-hidden />
+              Restore
+              <input
+                className="sr-only"
+                type="file"
+                accept="application/json,.json"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onImportJson(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
         </Panel>
       </div>
+
+      <Panel>
+        <SectionTitle eyebrow="Records" title="Heaviest, reps, and e1RM" />
+        {fullRecords.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {fullRecords.slice(0, 9).map((record) => (
+              <article key={record.exerciseId} className="rounded-lg border border-line bg-coal/60 p-3">
+                <p className="font-semibold text-white">{record.exerciseName}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs text-slate-400">
+                  <div className="rounded-lg bg-white/[0.04] p-2">
+                    <span className="block text-base font-semibold text-lift">{record.heaviestWeightKg}</span>
+                    kg
+                  </div>
+                  <div className="rounded-lg bg-white/[0.04] p-2">
+                    <span className="block text-base font-semibold text-amber">{record.mostReps}</span>
+                    reps
+                  </div>
+                  <div className="rounded-lg bg-white/[0.04] p-2">
+                    <span className="block text-base font-semibold text-sky-300">{record.bestEstimatedOneRepMax}</span>
+                    e1RM
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-line bg-coal/40 p-6 text-center text-slate-400">
+            Records will build automatically from saved sets.
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

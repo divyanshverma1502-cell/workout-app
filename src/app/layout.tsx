@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Lift Log | Personal Workout Tracker",
   description: "Track workouts, bodyweight progressions, progressive overload, and long-term strength trends.",
-  manifest: "/manifest.webmanifest",
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {

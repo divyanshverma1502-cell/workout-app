@@ -1,13 +1,12 @@
 "use client";
 
-import { CheckCircle2, Copy, Plus, Save, Search, Trash2, WifiOff } from "lucide-react";
+import { CheckCircle2, Copy, Plus, Save, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { RestTimer } from "@/components/rest-timer";
 import { Field, GhostButton, IconButton, Panel, Pill, PrimaryButton, Select, SectionTitle, TextArea } from "@/components/ui";
-import { api } from "@/lib/client-api";
-import { compareWorkoutToPrevious } from "@/lib/metrics";
+import { compareWorkoutToPrevious, lastExercisePerformance } from "@/lib/metrics";
 import { useWorkoutStore } from "@/store/workout-store";
-import type { Exercise, LoggedExerciseInput, SetKind, Workout, WorkoutInput, WorkoutTemplate } from "@/types/domain";
+import { exerciseCategories, type Exercise, type ExerciseInput, type LoggedExerciseInput, type SetKind, type Workout, type WorkoutInput, type WorkoutTemplate } from "@/types/domain";
 
 function nowIso() {
   return new Date().toISOString();
@@ -20,7 +19,8 @@ function toInputDate(iso: string) {
 }
 
 function fromInputDate(value: string) {
-  return new Date(value).toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
 }
 
 function emptyWorkout(bodyweightKg?: number | null): WorkoutInput {
@@ -45,53 +45,59 @@ function firstSet(setNumber: number, kind: SetKind = "standard") {
   };
 }
 
+function suggestedFirstSet(setNumber: number, last: ReturnType<typeof lastExercisePerformance>) {
+  if (!last) return firstSet(setNumber);
+  return {
+    setNumber,
+    reps: last.reps,
+    weightKg: last.weightKg,
+    assistanceKg: last.assistanceKg ?? null,
+    durationSeconds: null,
+    kind: last.kind,
+    completed: true,
+  };
+}
+
 export function WorkoutLogger({
   exercises,
   workouts,
   templates,
   latestBodyweight,
   onSaved,
-  onTemplatesChanged,
+  onSaveWorkout,
+  onSaveTemplate,
+  onCreateExercise,
 }: {
   exercises: Exercise[];
   workouts: Workout[];
   templates: WorkoutTemplate[];
   latestBodyweight?: number | null;
   onSaved: (workout: Workout) => void;
-  onTemplatesChanged: () => void;
+  onSaveWorkout: (workout: WorkoutInput) => Promise<Workout>;
+  onSaveTemplate: (template: Pick<WorkoutTemplate, "name" | "category" | "exercises">) => Promise<WorkoutTemplate>;
+  onCreateExercise: (input: ExerciseInput) => Promise<Exercise>;
 }) {
-  const { draft, setDraft, offlineQueue, queueWorkout, removeQueuedWorkout } = useWorkoutStore();
+  const { draft, setDraft } = useWorkoutStore();
   const [exerciseQuery, setExerciseQuery] = useState("");
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickExercise, setQuickExercise] = useState<ExerciseInput>({
+    name: "",
+    category: "Custom",
+    notes: "",
+    isBodyweight: false,
+  });
   const activeDraft = draft || emptyWorkout(latestBodyweight);
 
   useEffect(() => {
     if (!draft) setDraft(emptyWorkout(latestBodyweight));
   }, [draft, latestBodyweight, setDraft]);
 
-  useEffect(() => {
-    async function flush() {
-      if (!navigator.onLine || offlineQueue.length === 0) return;
-      for (const queued of offlineQueue) {
-        try {
-          const response = await api.saveWorkout(queued);
-          removeQueuedWorkout(queued.clientId);
-          onSaved(response.workout);
-        } catch {
-          break;
-        }
-      }
-    }
-
-    flush();
-    window.addEventListener("online", flush);
-    return () => window.removeEventListener("online", flush);
-  }, [offlineQueue, onSaved, removeQueuedWorkout]);
-
   const comparison = useMemo(() => compareWorkoutToPrevious(activeDraft, workouts), [activeDraft, workouts]);
   const filteredExercises = exercises
-    .filter((exercise) => exercise.name.toLowerCase().includes(exerciseQuery.toLowerCase()))
+    .filter((exercise) => !exercise.archivedAt)
+    .filter((exercise) => `${exercise.name} ${exercise.category} ${exercise.notes || ""}`.toLowerCase().includes(exerciseQuery.toLowerCase()))
     .slice(0, 8);
 
   function updateDraft(changes: Partial<WorkoutInput>) {
@@ -100,12 +106,13 @@ export function WorkoutLogger({
 
   function addExercise(exercise: Exercise) {
     const existingCount = activeDraft.exercises.length;
+    const last = lastExercisePerformance(workouts, exercise.id);
     const loggedExercise: LoggedExerciseInput = {
       exerciseId: exercise.id,
       exerciseName: exercise.name,
       category: exercise.category,
       notes: "",
-      sets: [firstSet(1, exercise.isBodyweight ? "standard" : "standard")],
+      sets: [suggestedFirstSet(1, last)],
     };
     setDraft({
       ...activeDraft,
@@ -113,6 +120,18 @@ export function WorkoutLogger({
       exercises: [...activeDraft.exercises, loggedExercise],
     });
     setExerciseQuery("");
+  }
+
+  async function createAndAddExercise() {
+    if (!quickExercise.name.trim()) {
+      setStatus("Exercise name is required.");
+      return;
+    }
+    const exercise = await onCreateExercise(quickExercise);
+    addExercise(exercise);
+    setQuickExercise({ name: "", category: "Custom", notes: "", isBodyweight: false });
+    setQuickCreateOpen(false);
+    setStatus("Exercise created and added.");
   }
 
   function updateExercise(index: number, changes: Partial<LoggedExerciseInput>) {
@@ -211,7 +230,7 @@ export function WorkoutLogger({
       return;
     }
 
-    await api.saveTemplate({
+    const template = await onSaveTemplate({
       name: activeDraft.name,
       category: activeDraft.exercises.length === 1 ? activeDraft.exercises[0].category : "Mixed",
       exercises: activeDraft.exercises.map((exercise) => ({
@@ -223,8 +242,7 @@ export function WorkoutLogger({
         targetReps: exercise.sets.map((set) => set.reps).join("/") || "8-12",
       })),
     });
-    onTemplatesChanged();
-    setStatus("Template saved.");
+    setStatus(`${template.name} saved.`);
   }
 
   async function saveWorkout() {
@@ -236,18 +254,12 @@ export function WorkoutLogger({
 
     setSaving(true);
     try {
-      const response = await api.saveWorkout(activeDraft);
+      const workout = await onSaveWorkout(activeDraft);
       setDraft(emptyWorkout(activeDraft.bodyweightKg || latestBodyweight));
-      onSaved(response.workout);
+      onSaved(workout);
       setStatus("Workout saved.");
     } catch (error) {
-      if (!navigator.onLine) {
-        queueWorkout(activeDraft);
-        setDraft(emptyWorkout(activeDraft.bodyweightKg || latestBodyweight));
-        setStatus("Saved offline. It will sync automatically.");
-      } else {
-        setStatus(error instanceof Error ? error.message : "Could not save workout.");
-      }
+      setStatus(error instanceof Error ? error.message : "Could not save workout.");
     } finally {
       setSaving(false);
     }
@@ -255,13 +267,6 @@ export function WorkoutLogger({
 
   return (
     <div className="space-y-5">
-      {offlineQueue.length > 0 ? (
-        <div className="flex items-center gap-3 rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">
-          <WifiOff size={18} aria-hidden />
-          {offlineQueue.length} offline workout{offlineQueue.length === 1 ? "" : "s"} queued
-        </div>
-      ) : null}
-
       <Panel>
         <SectionTitle
           eyebrow="Log"
@@ -313,11 +318,69 @@ export function WorkoutLogger({
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
         <div className="space-y-5">
           <Panel>
-            <SectionTitle eyebrow="Add" title="Exercises" />
+            <SectionTitle
+              eyebrow="Add"
+              title="Exercises"
+              action={
+                <GhostButton
+                  className="min-h-10 px-3"
+                  onClick={() => {
+                    setQuickCreateOpen(!quickCreateOpen);
+                    setQuickExercise((current) => ({ ...current, name: exerciseQuery }));
+                  }}
+                >
+                  <Plus size={16} aria-hidden />
+                  Add Exercise
+                </GhostButton>
+              }
+            />
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-3.5 text-slate-500" size={18} aria-hidden />
               <Field className="pl-10" placeholder="Search bench, pull-up, rows..." value={exerciseQuery} onChange={(event) => setExerciseQuery(event.target.value)} />
             </label>
+            {quickCreateOpen ? (
+              <div className="mt-3 rounded-lg border border-line bg-coal/70 p-3">
+                <div className="grid gap-2 md:grid-cols-[1fr_160px]">
+                  <Field
+                    aria-label="Custom exercise name"
+                    placeholder="Exercise name"
+                    value={quickExercise.name}
+                    onChange={(event) => setQuickExercise({ ...quickExercise, name: event.target.value })}
+                  />
+                  <Select
+                    aria-label="Custom exercise category"
+                    value={quickExercise.category}
+                    onChange={(event) => setQuickExercise({ ...quickExercise, category: event.target.value as ExerciseInput["category"] })}
+                  >
+                    {exerciseCategories.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
+                  <Field
+                    aria-label="Custom exercise notes"
+                    placeholder="Optional notes"
+                    value={quickExercise.notes || ""}
+                    onChange={(event) => setQuickExercise({ ...quickExercise, notes: event.target.value })}
+                  />
+                  <label className="flex min-h-12 items-center gap-2 rounded-lg border border-line bg-white/[0.04] px-3 text-sm text-slate-300">
+                    <input
+                      className="h-5 w-5 accent-lift"
+                      checked={Boolean(quickExercise.isBodyweight)}
+                      onChange={(event) => setQuickExercise({ ...quickExercise, isBodyweight: event.target.checked })}
+                      type="checkbox"
+                    />
+                    Bodyweight
+                  </label>
+                </div>
+                <PrimaryButton className="mt-2 w-full" onClick={createAndAddExercise}>
+                  Create and add
+                </PrimaryButton>
+              </div>
+            ) : null}
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {filteredExercises.map((exercise) => (
                 <button
@@ -328,7 +391,12 @@ export function WorkoutLogger({
                 >
                   <span>
                     <span className="block font-medium text-white">{exercise.name}</span>
-                    <span className="text-xs text-slate-400">{exercise.category}</span>
+                    <span className="text-xs text-slate-400">
+                      {exercise.category}
+                      {lastExercisePerformance(workouts, exercise.id)
+                        ? ` - Last ${lastExercisePerformance(workouts, exercise.id)?.weightKg}kg x ${lastExercisePerformance(workouts, exercise.id)?.reps}`
+                        : ""}
+                    </span>
                   </span>
                   <Plus size={18} className="text-lift" aria-hidden />
                 </button>
@@ -338,6 +406,7 @@ export function WorkoutLogger({
 
           {activeDraft.exercises.map((exercise, exerciseIndex) => {
             const improvement = comparison.find((item) => item.exerciseId === exercise.exerciseId);
+            const last = lastExercisePerformance(workouts, exercise.exerciseId);
             return (
               <Panel key={`${exercise.exerciseId}-${exerciseIndex}`} className="p-3 md:p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -353,7 +422,7 @@ export function WorkoutLogger({
                       ) : null}
                     </div>
                     <p className="mt-1 text-sm text-slate-400">
-                      Previous volume {Math.round(improvement?.previousVolume || 0).toLocaleString()} kg
+                      {last ? `Last session: ${last.weightKg}kg x ${last.reps}` : `Previous volume ${Math.round(improvement?.previousVolume || 0).toLocaleString()} kg`}
                     </p>
                   </div>
                   <IconButton aria-label="Remove exercise" onClick={() => removeExercise(exerciseIndex)}>

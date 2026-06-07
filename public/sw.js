@@ -1,5 +1,5 @@
-const CACHE_NAME = "lift-log-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/icon.svg"];
+const CACHE_NAME = "lift-log-pwa-v2";
+const APP_SHELL = ["/", "/manifest.json", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -17,8 +17,36 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
+  const url = new URL(request.url);
 
-  if (request.method !== "GET" || new URL(request.url).pathname.startsWith("/api/")) {
+  if (request.method !== "GET" || url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put("/", copy));
+          return response;
+        })
+        .catch(() => caches.match("/")),
+    );
+    return;
+  }
+
+  if (url.origin === self.location.origin && (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/"))) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        });
+      }),
+    );
     return;
   }
 
@@ -29,6 +57,6 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match("/"))),
+      .catch(() => caches.match(request)),
   );
 });

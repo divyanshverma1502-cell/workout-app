@@ -1,4 +1,7 @@
 import type {
+  ExerciseHistoryPoint,
+  ExerciseRecord,
+  LastExercisePerformance,
   LoggedExerciseInput,
   PersonalRecord,
   StrengthPoint,
@@ -129,6 +132,42 @@ export function personalRecords(workouts: Workout[]) {
   return Array.from(records.values()).sort((a, b) => b.value - a.value);
 }
 
+export function exerciseRecords(workouts: Workout[]) {
+  const records = new Map<string, ExerciseRecord>();
+
+  for (const workout of workouts) {
+    for (const exercise of workout.exercises) {
+      const current = records.get(exercise.exerciseId) || {
+        exerciseId: exercise.exerciseId,
+        exerciseName: exercise.exerciseName,
+        heaviestWeightKg: 0,
+        mostReps: 0,
+        bestEstimatedOneRepMax: 0,
+      };
+
+      for (const set of exercise.sets) {
+        const estimated = estimateOneRepMax(set.weightKg, set.reps);
+        if (set.weightKg > current.heaviestWeightKg) {
+          current.heaviestWeightKg = set.weightKg;
+          current.heaviestWeightAt = workout.performedAt;
+        }
+        if (set.reps > current.mostReps) {
+          current.mostReps = set.reps;
+          current.mostRepsAt = workout.performedAt;
+        }
+        if (estimated > current.bestEstimatedOneRepMax) {
+          current.bestEstimatedOneRepMax = estimated;
+          current.bestEstimatedOneRepMaxAt = workout.performedAt;
+        }
+      }
+
+      records.set(exercise.exerciseId, current);
+    }
+  }
+
+  return Array.from(records.values()).sort((a, b) => b.bestEstimatedOneRepMax - a.bestEstimatedOneRepMax);
+}
+
 export function strengthTrend(workouts: Workout[]): StrengthPoint[] {
   return [...workouts]
     .sort((a, b) => new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime())
@@ -152,6 +191,53 @@ export function strengthTrend(workouts: Workout[]): StrengthPoint[] {
       }
       return point;
     });
+}
+
+export function customStrengthTrend(workouts: Workout[], exerciseId: string): StrengthPoint[] {
+  return exerciseHistory(workouts, exerciseId).map((point) => ({
+    date: point.date,
+    custom: point.estimatedOneRepMax,
+  }));
+}
+
+export function exerciseHistory(workouts: Workout[], exerciseId: string): ExerciseHistoryPoint[] {
+  return [...workouts]
+    .sort((a, b) => new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime())
+    .flatMap((workout) =>
+      workout.exercises
+        .filter((exercise) => exercise.exerciseId === exerciseId)
+        .map((exercise) => {
+          const bestSet = [...exercise.sets].sort(
+            (a, b) => estimateOneRepMax(b.weightKg, b.reps) - estimateOneRepMax(a.weightKg, a.reps),
+          )[0];
+
+          return {
+            date: workout.performedAt.slice(0, 10),
+            weightKg: bestSet?.weightKg || 0,
+            reps: bestSet?.reps || 0,
+            volume: exerciseVolume(exercise, workout.bodyweightKg),
+            estimatedOneRepMax: bestSet ? estimateOneRepMax(bestSet.weightKg, bestSet.reps) : 0,
+          };
+        }),
+    );
+}
+
+export function lastExercisePerformance(workouts: Workout[], exerciseId: string): LastExercisePerformance | null {
+  for (const workout of [...workouts].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())) {
+    const exercise = workout.exercises.find((candidate) => candidate.exerciseId === exerciseId);
+    const lastSet = exercise?.sets.at(-1);
+    if (exercise && lastSet) {
+      return {
+        workoutName: workout.name,
+        performedAt: workout.performedAt,
+        reps: lastSet.reps,
+        weightKg: lastSet.weightKg,
+        assistanceKg: lastSet.assistanceKg,
+        kind: lastSet.kind,
+      };
+    }
+  }
+  return null;
 }
 
 export function weeklyWorkoutCounts(workouts: Workout[]) {
@@ -182,6 +268,35 @@ export function volumeByWeek(workouts: Workout[]) {
     }
   }
   return weeks;
+}
+
+export function volumeByDay(workouts: Workout[], days = 14) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: days }, (_, index) => {
+    const start = new Date(today);
+    start.setDate(today.getDate() - (days - 1 - index));
+    const key = localDateKey(start);
+    const volume = workouts
+      .filter((workout) => localDateKey(new Date(workout.performedAt)) === key)
+      .reduce((sum, workout) => sum + workout.totalVolume, 0);
+    return { period: key.slice(5), volume };
+  });
+}
+
+export function volumeByMonth(workouts: Workout[], months = 6) {
+  const now = new Date();
+  return Array.from({ length: months }, (_, index) => {
+    const month = new Date(now.getFullYear(), now.getMonth() - (months - 1 - index), 1);
+    const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
+    const volume = workouts
+      .filter((workout) => {
+        const date = new Date(workout.performedAt);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` === key;
+      })
+      .reduce((sum, workout) => sum + workout.totalVolume, 0);
+    return { period: key, volume };
+  });
 }
 
 export function muscleFrequency(workouts: Workout[]) {
