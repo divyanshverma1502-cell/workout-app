@@ -1,26 +1,27 @@
 # Lift Log
 
-A personal workout tracker built with Next.js, TypeScript, Tailwind CSS, Zustand, Recharts, and a local SQLite database powered by Node's built-in `node:sqlite` module.
+A personal, local-first workout tracker built with Next.js, TypeScript, Tailwind CSS, Zustand, Recharts, and browser IndexedDB.
 
 ## Features
 
-- Email/password signup and login with HTTP-only cookie sessions
-- Local SQLite storage for users, sessions, workouts, sets, templates, favorites, and bodyweight entries
+- No accounts, login, signup, cloud sync, or server-side workout storage
+- IndexedDB storage for workouts, custom exercises, favorites, templates, and bodyweight entries
 - Mobile-first dark UI with large gym-friendly controls
 - Workout logging with exercise notes, set types, assisted reps, negatives, and partial reps
 - Previous-workout duplication and reusable workout templates
+- Standalone bodyweight weigh-ins plus workout-linked bodyweight logging
 - Progressive overload comparison against prior sessions
 - Dashboard cards, PR tracking, strength trends, weekly volume, consistency, and bodyweight charts
 - Bodyweight exercise progression for push-ups, pull-ups, planks, and dips
-- Estimated 1RM calculator, streak tracking, muscle group frequency, and CSV export
-- PWA manifest and service worker for Android install, home-screen launch, and local offline logging
+- Estimated 1RM calculator, streak tracking, muscle group frequency, CSV export, and JSON backup/restore
+- PWA manifest and service worker for Android install, home-screen launch, and offline local logging
 
 ## Requirements
 
 - Node.js `22.13.0` or newer
 - npm
 
-This app uses `node:sqlite`, so older Node versions will not run the API routes.
+No database server or environment variables are required.
 
 ## Setup
 
@@ -30,19 +31,6 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
-
-The SQLite database is created automatically at `data/workout.sqlite`. To store it elsewhere:
-
-```bash
-WORKOUT_DB_PATH=/absolute/path/workout.sqlite npm run dev
-```
-
-PowerShell:
-
-```powershell
-$env:WORKOUT_DB_PATH = "C:\absolute\path\workout.sqlite"
-npm run dev
-```
 
 ## Scripts
 
@@ -55,13 +43,23 @@ npm run typecheck  # run TypeScript checks
 
 ## Architecture
 
-- `src/app/api/*` contains the server API for authentication, exercises, workouts, templates, bodyweight, and CSV export.
-- `src/lib/db.ts` owns SQLite schema creation, seed exercises, starter templates, and data persistence.
-- `src/lib/auth.ts` owns password hashing, session issuing, and cookie handling.
-- `src/lib/local-db.ts` keeps the offline-first browser copy of exercises, workouts, templates, bodyweight entries, and backups in IndexedDB.
+- `src/lib/local-db.ts` is the primary persistence layer and stores gym data in IndexedDB.
 - `src/store/workout-store.ts` keeps only the active gym-session draft in browser storage.
 - `src/components/*` contains reusable UI, charts, dashboard, workout logger, analytics, and exercise library views.
+- `public/manifest.json`, `public/manifest.webmanifest`, `public/sw.js`, and `public/icons/*` provide Android PWA installation and offline app-shell caching.
+
+## Vercel Deployment
+
+1. Push the repository to GitHub.
+2. In Vercel, choose **Add New Project** and import the repository.
+3. Keep the framework preset as **Next.js**.
+4. Use the default install command, `npm install`.
+5. Use the build command, `npm run build`.
+6. Leave environment variables empty.
+7. Deploy.
+
+After deployment, open the HTTPS Vercel URL in Chrome on Android and choose **Install app** or **Add to Home screen**.
 
 ## Seed Exercises
 
-The database preloads Bench Press, Incline Press, Lat Pulldown, Pull-up, Leg Press, Romanian Deadlift, Overhead Press, Rows, Push-ups, Squats, Planks, Dips, and Treadmill Run.
+The browser database preloads Bench Press, Incline Press, Lat Pulldown, Pull-up, Leg Press, Romanian Deadlift, Overhead Press, Rows, Push-ups, Squats, Planks, Dips, and Treadmill Run.

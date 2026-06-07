@@ -1,13 +1,11 @@
 "use client";
 
-import { Activity, BarChart3, BookOpen, Dumbbell, LogOut, Menu, RefreshCw } from "lucide-react";
+import { Activity, BarChart3, BookOpen, Dumbbell, Menu, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Analytics } from "@/components/analytics";
-import { AuthPanel } from "@/components/auth-panel";
 import { Dashboard } from "@/components/dashboard";
 import { ExerciseLibrary } from "@/components/exercise-library";
 import { WorkoutLogger } from "@/components/workout-logger";
-import { api } from "@/lib/client-api";
 import {
   archiveLocalExercise,
   deleteLocalExercise,
@@ -16,16 +14,15 @@ import {
   getLocalData,
   importLocalSnapshot,
   initLocalDatabase,
-  mergeServerData,
+  saveLocalBodyweightEntry,
   saveLocalExercise,
   saveLocalTemplate,
   saveLocalWorkout,
   setLocalFavorite,
-  setLocalProfile,
   updateLocalExercise,
   type LocalSnapshot,
 } from "@/lib/local-db";
-import type { BodyweightEntry, Exercise, ExerciseInput, User, Workout, WorkoutInput, WorkoutTemplate } from "@/types/domain";
+import type { BodyweightEntry, Exercise, ExerciseInput, Workout, WorkoutInput, WorkoutTemplate } from "@/types/domain";
 import { GhostButton, IconButton, PrimaryButton } from "@/components/ui";
 
 type View = "dashboard" | "log" | "analytics" | "library";
@@ -44,7 +41,6 @@ function initialView(): View {
 }
 
 export function WorkoutApp() {
-  const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>(initialView);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
@@ -63,37 +59,10 @@ export function WorkoutApp() {
     setWorkouts(data.workouts);
     setBodyweight(data.bodyweight);
     setTemplates(data.templates);
-    if (data.profile) setUser(data.profile);
   }, []);
 
-  const refreshFromServer = useCallback(async () => {
+  const reloadLocalData = useCallback(async () => {
     setError("");
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setIsOffline(true);
-      await loadLocalData();
-      return;
-    }
-
-    const response = await api.me();
-    if (!response.user) {
-      await loadLocalData();
-      return;
-    }
-
-    const [exerciseData, workoutData, bodyweightData, templateData] = await Promise.all([
-      api.exercises(),
-      api.workouts(),
-      api.bodyweight(),
-      api.templates(),
-    ]);
-
-    await mergeServerData({
-      user: response.user,
-      exercises: exerciseData.exercises,
-      workouts: workoutData.workouts,
-      bodyweight: bodyweightData.bodyweight,
-      templates: templateData.templates,
-    });
     await loadLocalData();
   }, [loadLocalData]);
 
@@ -102,17 +71,15 @@ export function WorkoutApp() {
       try {
         await initLocalDatabase();
         await loadLocalData();
-        await refreshFromServer();
       } catch (err) {
-        await loadLocalData();
-        setError(err instanceof Error ? err.message : "Loaded offline data.");
+        setError(err instanceof Error ? err.message : "Could not load local data.");
       } finally {
         setLoading(false);
       }
     }
 
     boot();
-  }, [loadLocalData, refreshFromServer]);
+  }, [loadLocalData]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -128,24 +95,11 @@ export function WorkoutApp() {
     };
   }, []);
 
-  async function handleAuthenticated(nextUser: User) {
-    setUser(nextUser);
-    await setLocalProfile(nextUser);
-    await refreshFromServer();
-  }
-
-  async function logout() {
-    await api.logout().catch(() => undefined);
-    await setLocalProfile(null);
-    setUser(null);
-  }
-
   async function toggleFavorite(exerciseId: string, favorite: boolean) {
     setExercises((current) =>
       current.map((exercise) => (exercise.id === exerciseId ? { ...exercise, isFavorite: favorite } : exercise)),
     );
     await setLocalFavorite(exerciseId, favorite);
-    api.favorite(exerciseId, favorite).catch(() => undefined);
   }
 
   async function createExercise(input: ExerciseInput) {
@@ -172,39 +126,20 @@ export function WorkoutApp() {
 
   async function saveWorkout(workoutInput: WorkoutInput) {
     const workout = await saveLocalWorkout(workoutInput);
-    handleWorkoutSaved(workout);
-    if (navigator.onLine) {
-      api.saveWorkout(workoutInput).catch(() => undefined);
-    }
+    await loadLocalData();
     return workout;
   }
 
   async function saveTemplate(templateInput: Pick<WorkoutTemplate, "name" | "category" | "exercises">) {
     const template = await saveLocalTemplate(templateInput);
-    setTemplates((current) => [...current, template]);
-    if (navigator.onLine) {
-      api.saveTemplate(templateInput).catch(() => undefined);
-    }
+    await loadLocalData();
     return template;
   }
 
-  function handleWorkoutSaved(workout: Workout) {
-    setWorkouts((current) =>
-      [workout, ...current.filter((item) => item.id !== workout.id)].sort(
-        (a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime(),
-      ),
-    );
-    if (workout.bodyweightKg) {
-      setBodyweight((current) => [
-        ...current,
-        {
-          id: `${workout.id}-bodyweight`,
-          loggedAt: workout.performedAt,
-          weightKg: workout.bodyweightKg || 0,
-          notes: "Logged with workout",
-        },
-      ]);
-    }
+  async function saveBodyweight(entry: Pick<BodyweightEntry, "loggedAt" | "weightKg" | "notes">) {
+    const bodyweightEntry = await saveLocalBodyweightEntry(entry);
+    await loadLocalData();
+    return bodyweightEntry;
   }
 
   async function exportJson() {
@@ -237,10 +172,6 @@ export function WorkoutApp() {
     );
   }
 
-  if (!user) {
-    return <AuthPanel onAuthenticated={handleAuthenticated} />;
-  }
-
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl px-3 pb-24 pt-3 md:px-6 md:pb-8">
       <header className="sticky top-0 z-30 -mx-3 border-b border-line bg-coal/88 px-3 py-3 backdrop-blur md:-mx-6 md:px-6">
@@ -251,7 +182,7 @@ export function WorkoutApp() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-lift">Lift Log</p>
-              <h1 className="text-lg font-semibold leading-tight text-white">Hi, {user.name}</h1>
+              <h1 className="text-lg font-semibold leading-tight text-white">Personal gym tracker</h1>
             </div>
           </div>
 
@@ -272,13 +203,9 @@ export function WorkoutApp() {
           </nav>
 
           <div className="flex items-center gap-2">
-            <GhostButton className="hidden min-h-10 md:inline-flex" onClick={refreshFromServer}>
+            <GhostButton className="hidden min-h-10 md:inline-flex" onClick={reloadLocalData}>
               <RefreshCw size={16} aria-hidden />
-              Sync
-            </GhostButton>
-            <GhostButton className="hidden min-h-10 md:inline-flex" onClick={logout}>
-              <LogOut size={16} aria-hidden />
-              Logout
+              Reload
             </GhostButton>
             <IconButton aria-label="Open menu" className="md:hidden" onClick={() => setMenuOpen(!menuOpen)}>
               <Menu size={20} aria-hidden />
@@ -289,8 +216,7 @@ export function WorkoutApp() {
         {menuOpen ? (
           <div className="mt-3 grid gap-2 md:hidden">
             <PrimaryButton onClick={() => { setView("log"); setMenuOpen(false); }}>Log workout</PrimaryButton>
-            <GhostButton onClick={refreshFromServer}>Sync data</GhostButton>
-            <GhostButton onClick={logout}>Logout</GhostButton>
+            <GhostButton onClick={reloadLocalData}>Reload local data</GhostButton>
           </div>
         ) : null}
       </header>
@@ -335,6 +261,7 @@ export function WorkoutApp() {
             onUpdateExercise={updateExercise}
             onArchiveExercise={archiveExercise}
             onDeleteExercise={deleteExercise}
+            onSaveBodyweight={saveBodyweight}
           />
         ) : null}
       </div>

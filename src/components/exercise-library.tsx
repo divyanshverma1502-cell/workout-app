@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Edit3, Heart, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Archive, Edit3, Heart, Plus, RotateCcw, Scale, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { BodyweightChart, ExerciseHistoryChart } from "@/components/charts";
 import { exerciseCategories, type BodyweightEntry, type Exercise, type ExerciseInput, type Workout } from "@/types/domain";
@@ -33,6 +33,7 @@ export function ExerciseLibrary({
   onUpdateExercise,
   onArchiveExercise,
   onDeleteExercise,
+  onSaveBodyweight,
 }: {
   exercises: Exercise[];
   workouts: Workout[];
@@ -42,12 +43,18 @@ export function ExerciseLibrary({
   onUpdateExercise: (exerciseId: string, input: ExerciseInput) => Promise<void>;
   onArchiveExercise: (exerciseId: string, archive: boolean) => Promise<void>;
   onDeleteExercise: (exerciseId: string) => Promise<void>;
+  onSaveBodyweight: (entry: Pick<BodyweightEntry, "loggedAt" | "weightKg" | "notes">) => Promise<BodyweightEntry>;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [showArchived, setShowArchived] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [bodyweightForm, setBodyweightForm] = useState(() => ({
+    loggedAt: toInputDate(nowIso()),
+    weightKg: "",
+    notes: "",
+  }));
   const [selectedExerciseId, setSelectedExerciseId] = useState(exercises[0]?.id || "");
   const [status, setStatus] = useState("");
 
@@ -129,6 +136,26 @@ export function ExerciseLibrary({
 
     setForm(emptyForm);
     setFormOpen(false);
+  }
+
+  async function submitBodyweight() {
+    const weightKg = Number(bodyweightForm.weightKg);
+    if (!Number.isFinite(weightKg) || weightKg <= 0) {
+      setStatus("Bodyweight must be greater than zero.");
+      return;
+    }
+
+    await onSaveBodyweight({
+      loggedAt: fromInputDate(bodyweightForm.loggedAt),
+      weightKg,
+      notes: bodyweightForm.notes,
+    });
+    setBodyweightForm({
+      loggedAt: toInputDate(nowIso()),
+      weightKg: "",
+      notes: "",
+    });
+    setStatus("Bodyweight entry saved.");
   }
 
   return (
@@ -381,6 +408,38 @@ export function ExerciseLibrary({
 
       <Panel>
         <SectionTitle eyebrow="Weight" title="Bodyweight entries" />
+        <div className="mb-4 grid gap-3 md:grid-cols-[180px_140px_1fr_auto]">
+          <label>
+            <span className="mb-1 block text-sm text-slate-300">Date</span>
+            <Field
+              type="datetime-local"
+              value={bodyweightForm.loggedAt}
+              onChange={(event) => setBodyweightForm({ ...bodyweightForm, loggedAt: event.target.value })}
+            />
+          </label>
+          <label>
+            <span className="mb-1 block text-sm text-slate-300">Weight kg</span>
+            <Field
+              type="number"
+              min={0}
+              value={bodyweightForm.weightKg}
+              onChange={(event) => setBodyweightForm({ ...bodyweightForm, weightKg: event.target.value })}
+              placeholder="kg"
+            />
+          </label>
+          <label>
+            <span className="mb-1 block text-sm text-slate-300">Notes</span>
+            <Field
+              value={bodyweightForm.notes}
+              onChange={(event) => setBodyweightForm({ ...bodyweightForm, notes: event.target.value })}
+              placeholder="Optional"
+            />
+          </label>
+          <PrimaryButton className="self-end" onClick={submitBodyweight}>
+            <Scale size={16} aria-hidden />
+            Save
+          </PrimaryButton>
+        </div>
         {bodyweight.length > 1 ? (
           <BodyweightChart entries={bodyweight} />
         ) : (
@@ -391,6 +450,21 @@ export function ExerciseLibrary({
       </Panel>
     </div>
   );
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function toInputDate(iso: string) {
+  const date = new Date(iso);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
+function fromInputDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
 }
 
 function formatDate(iso: string) {

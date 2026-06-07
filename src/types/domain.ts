@@ -14,12 +14,6 @@ export const setKinds = ["standard", "assisted", "negative", "partial"] as const
 
 export type SetKind = (typeof setKinds)[number];
 
-export type User = {
-  id: string;
-  name: string;
-  email: string;
-};
-
 export type Exercise = {
   id: string;
   name: string;

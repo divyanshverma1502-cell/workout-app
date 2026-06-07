@@ -6,18 +6,17 @@ import type {
   BodyweightEntry,
   Exercise,
   ExerciseInput,
-  User,
   Workout,
   WorkoutInput,
   WorkoutTemplate,
 } from "@/types/domain";
 
 const databaseName = "lift-log-offline";
-const databaseVersion = 1;
+const databaseVersion = 2;
+const legacyProfileStore = "profile";
 
 const stores = {
   meta: "meta",
-  profile: "profile",
   exercises: "exercises",
   workouts: "workouts",
   bodyweight: "bodyweight",
@@ -29,7 +28,6 @@ type StoreName = (typeof stores)[keyof typeof stores];
 export type LocalSnapshot = {
   version: 1;
   exportedAt: string;
-  profile: User | null;
   exercises: Exercise[];
   workouts: Workout[];
   bodyweight: BodyweightEntry[];
@@ -53,25 +51,10 @@ export async function initLocalDatabase() {
   await putValue(db, stores.meta, "seeded", true);
 }
 
-export async function getLocalProfile() {
-  const db = await getDatabase();
-  return ((await getValue<User>(db, stores.profile, "current")) || null);
-}
-
-export async function setLocalProfile(user: User | null) {
-  const db = await getDatabase();
-  if (user) {
-    await putValue(db, stores.profile, "current", user);
-  } else {
-    await deleteValue(db, stores.profile, "current");
-  }
-}
-
 export async function getLocalData() {
   await initLocalDatabase();
   const db = await getDatabase();
-  const [profile, exercises, workouts, bodyweight, templates] = await Promise.all([
-    getLocalProfile(),
+  const [exercises, workouts, bodyweight, templates] = await Promise.all([
     getAll<Exercise>(db, stores.exercises),
     getAll<Workout>(db, stores.workouts),
     getAll<BodyweightEntry>(db, stores.bodyweight),
@@ -79,7 +62,6 @@ export async function getLocalData() {
   ]);
 
   return {
-    profile,
     exercises: exercises
       .map(normalizeExercise)
       .sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || a.category.localeCompare(b.category) || a.name.localeCompare(b.name)),
@@ -87,42 +69,6 @@ export async function getLocalData() {
     bodyweight: bodyweight.sort((a, b) => new Date(a.loggedAt).getTime() - new Date(b.loggedAt).getTime()),
     templates: templates.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
   };
-}
-
-export async function mergeServerData(input: {
-  user?: User | null;
-  exercises?: Exercise[];
-  workouts?: Workout[];
-  bodyweight?: BodyweightEntry[];
-  templates?: WorkoutTemplate[];
-}) {
-  await initLocalDatabase();
-  const db = await getDatabase();
-
-  if (input.user) await setLocalProfile(input.user);
-  if (input.exercises) {
-    const localExercises = await getAll<Exercise>(db, stores.exercises);
-    const localById = new Map(localExercises.map((exercise) => [exercise.id, exercise]));
-    await putMany(
-      db,
-      stores.exercises,
-      input.exercises.map((exercise) => {
-        const existing = localById.get(exercise.id);
-        return normalizeExercise({
-          ...exercise,
-          isFavorite: existing?.isFavorite || exercise.isFavorite,
-          source: existing?.source || exercise.source || "seed",
-          notes: existing?.notes || exercise.notes || null,
-          archivedAt: existing?.archivedAt || null,
-          createdAt: existing?.createdAt || exercise.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }),
-    );
-  }
-  if (input.workouts) await putMany(db, stores.workouts, input.workouts.map(normalizeWorkout));
-  if (input.bodyweight) await putMany(db, stores.bodyweight, input.bodyweight);
-  if (input.templates) await putMany(db, stores.templates, input.templates);
 }
 
 export async function saveLocalExercise(input: ExerciseInput) {
@@ -233,6 +179,24 @@ export async function saveLocalWorkout(input: WorkoutInput) {
   return workout;
 }
 
+export async function saveLocalBodyweightEntry(input: Pick<BodyweightEntry, "loggedAt" | "weightKg" | "notes">) {
+  const weightKg = Number(input.weightKg);
+  if (!Number.isFinite(weightKg) || weightKg <= 0) {
+    throw new Error("Bodyweight must be greater than zero.");
+  }
+
+  const db = await getDatabase();
+  const entry: BodyweightEntry = {
+    id: crypto.randomUUID(),
+    loggedAt: input.loggedAt || new Date().toISOString(),
+    weightKg,
+    notes: input.notes?.trim() || null,
+  };
+
+  await putValue(db, stores.bodyweight, entry.id, entry);
+  return entry;
+}
+
 export async function saveLocalTemplate(input: Pick<WorkoutTemplate, "name" | "category" | "exercises">) {
   const db = await getDatabase();
   const template: WorkoutTemplate = {
@@ -256,7 +220,6 @@ export async function exportLocalSnapshot(): Promise<LocalSnapshot> {
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
-    profile: data.profile,
     exercises: data.exercises,
     workouts: data.workouts,
     bodyweight: data.bodyweight,
@@ -274,7 +237,6 @@ export async function importLocalSnapshot(snapshot: LocalSnapshot) {
   await putMany(db, stores.workouts, snapshot.workouts.map(normalizeWorkout));
   await putMany(db, stores.bodyweight, snapshot.bodyweight);
   await putMany(db, stores.templates, snapshot.templates);
-  await setLocalProfile(snapshot.profile);
   await putValue(db, stores.meta, "seeded", true);
 }
 
@@ -323,6 +285,9 @@ function getDatabase() {
           db.createObjectStore(storeName);
         }
       });
+      if (db.objectStoreNames.contains(legacyProfileStore)) {
+        db.deleteObjectStore(legacyProfileStore);
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error("Could not open IndexedDB."));

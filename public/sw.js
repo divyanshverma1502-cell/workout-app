@@ -1,4 +1,4 @@
-const CACHE_NAME = "lift-log-pwa-v3";
+const CACHE_NAME = "lift-log-pwa-v4";
 const APP_SHELL = [
   "/",
   "/manifest.json",
@@ -34,7 +34,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
+  if (request.method !== "GET" || url.origin !== self.location.origin) {
     return;
   }
 
